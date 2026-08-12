@@ -11,6 +11,7 @@
 --   * current/facing/nearest cached-neighbour upload priority;
 --   * no heavy live meshing while normal walking is already fully 3D;
 --   * transition frames count as covered work time;
+--   * lighter shadow-map ladder and 120 Hz shadow rebuild throttling.
 
 local V = ...
 
@@ -432,6 +433,48 @@ local function pumpDisk(ow, covered, isMoving)
   return true
 end
 
+local function installShadowTuning()
+  local ShadowMap = V.require("ShadowMap")
+  ShadowMap.SIZES = { 768, 1024, 1536 }
+  ShadowMap.TARGET = 0.60
+  ShadowMap.res = 768
+
+  -- Keep the world itself at the display refresh rate, but on a 120 Hz phone
+  -- do not demand a second full sun render less than 1/90 s after the last one.
+  -- Map changes always bypass the throttle.
+  local oldStale = ShadowMap.stale
+  local oldFinish = ShadowMap.finish
+  local oldInvalidate = ShadowMap.invalidate
+  local lastDrawAt = -math.huge
+  local lastMap = nil
+
+  ShadowMap.stale = function(sig, ...)
+    local stale = oldStale(sig, ...)
+    if not stale then return false end
+    local okG, Game = pcall(require, "src.core.Game")
+    local mapId = okG and Game and Game.overworld and Game.overworld.map
+                  and Game.overworld.map.id or nil
+    if mapId ~= nil and mapId == lastMap and (clock() - lastDrawAt) < (1 / 90) then
+      return false
+    end
+    return true
+  end
+
+  ShadowMap.finish = function(sig, ...)
+    local r = oldFinish(sig, ...)
+    local okG, Game = pcall(require, "src.core.Game")
+    lastMap = okG and Game and Game.overworld and Game.overworld.map
+              and Game.overworld.map.id or nil
+    lastDrawAt = clock()
+    return r
+  end
+
+  ShadowMap.invalidate = function(...)
+    lastMap, lastDrawAt = nil, -math.huge
+    return oldInvalidate(...)
+  end
+end
+
 function M.install(ChunkMesher, VoxelScene, Voxel)
   if installed then return end
   installed = true
@@ -580,6 +623,7 @@ function M.install(ChunkMesher, VoxelScene, Voxel)
     return originals.pump(covered, ...)
   end
 
+  installShadowTuning()
   pcall(function()
     if V.mod and V.mod.log and V.mod.log.info then
       V.mod.log:info("Android optimizer active: persistent BODY cache %s", CACHE_VERSION)

@@ -87,6 +87,7 @@ local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local ViewBox = V.require("ViewBox")
 local OverworldBattle = V.require("OverworldBattle")
+local StadiumBattleFxProvider = V.require("StadiumBattleFxProvider")
 local BattleExit = V.require("BattleExit")
 local Shiny = V.require("Shiny")
 local ShinyBattle = V.require("ShinyBattle")
@@ -139,6 +140,10 @@ function V.dlog(msg)
 end
 V.dlog(("main.lua loading path=%s id=%s"):format(
   tostring(mod.path), tostring(mod.id)))
+
+mod.events:on("mods.loaded", function()
+  StadiumBattleFxProvider.register()
+end)
 
 -- Forward declaration: the voxel pipeline's update hook (registered below)
 -- calls this, and it is defined further down with the settings it drives.

@@ -1210,11 +1210,14 @@ function Water.shader(grid)
         local bareOk, bareSh = pcall(love.graphics.newShader, source(grid, true))
         if bareOk then ok, sh = bareOk, bareSh end
       end
-      if not ok and V and V.mod and V.mod.log then
+      if not ok then
         -- once, where it can be read: the fallback is flat water, which is
         -- easy to look at and impossible to diagnose without this line
-        V.mod.log:warn("water shader did not compile: %s -- lakes draw flat",
-                       tostring(sh))
+        local msg = ("water shader did not compile: %s -- lakes draw flat"):format(
+          tostring(sh))
+        if V and V.log then V.log:warn("%s", msg)
+        elseif V and V.dlog then V.dlog(msg)
+        elseif V and V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
       end
       shaders[grid] = (ok and sh) or false
     end

@@ -189,8 +189,12 @@ function HordeSfx.register(mod)
         mod.content.sfx:register(name, { chip = out.chip })
       end)
       if reg then n = n + 1 end
-    elseif mod.log then
-      mod.log:error("horde: sfx %s did not assemble: %s", name, tostring(out))
+    else
+      local msg = ("horde: sfx %s did not assemble: %s"):format(
+        tostring(name), tostring(out))
+      if V.log then V.log:error("%s", msg)
+      elseif V.dlog then V.dlog(msg)
+      elseif V.mod and V.mod.log then V.mod.log:error("%s", msg) end
     end
   end
   return n > 0

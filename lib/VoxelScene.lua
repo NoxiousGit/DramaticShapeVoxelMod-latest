@@ -913,8 +913,22 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits
   -- invisibly instead of freezing or tilting an empty stage.
-  local terrain, nbMesh, water, nbWater = VoxelScene.prefetch(state)
-  if not terrain then return nil end
+  local okPrefetch, terrain, nbMesh, water, nbWater = pcall(VoxelScene.prefetch, state)
+  if not okPrefetch then
+    if V.log and not V._scenePrefetchErr then
+      V._scenePrefetchErr = true
+      V.log:error("VoxelScene.prefetch raised: %s", tostring(terrain))
+    end
+    return nil
+  end
+  if not terrain then
+    if V.log and not V._sceneNoTerrain then
+      V._sceneNoTerrain = true
+      local mapId = state and state.map and state.map.id
+      V.log:event("voxelscene", "no-terrain", { map = mapId or "unknown" })
+    end
+    return nil
+  end
 
   local cam = state.camera
   local cx, cy = cam.x + vw / 2, cam.y + vh / 2

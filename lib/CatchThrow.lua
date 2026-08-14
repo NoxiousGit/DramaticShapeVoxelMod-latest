@@ -844,6 +844,12 @@ end
 function CatchThrow.cancel(declined)
   if not (S and S.phase == "aim") then return false end
   local b = S.battle
+  if V.log then
+    V.log:event("catch", "cancel", {
+      declined = declined and "true" or "false",
+      fullWild = S.fullWild and "true" or "false",
+    })
+  end
   if S.fullWild then
     sound("Run")
     b:say(require("src.core.Strings")("Got away safely!"))
@@ -1155,6 +1161,9 @@ function CatchThrow.begin(battle, ballId, opts)
   end)
   if not ok or not S then
     S = nil
+    if V.log then
+      V.log:warn("CatchThrow.begin failed ball=%s", tostring(ballId))
+    end
     return false
   end
   battle.phase = CatchThrow.PHASE
@@ -1164,6 +1173,13 @@ function CatchThrow.begin(battle, ballId, opts)
   -- closes every input that could move it. The player's own steered angle
   -- and lens come back when the hold releases.
   installScene()
+  if V.log then
+    V.log:event("catch", "begin", {
+      ball = ballId or "empty",
+      safari = opts.safari and "true" or "false",
+      fullWild = opts.fullWild and "true" or "false",
+    })
+  end
   return true
 end
 
@@ -1318,6 +1334,7 @@ end
 function CatchThrow.installInput()
   if installed then return end
   installed = true
+  if V.log then V.log:event("input", "CatchThrow.installInput", { ok = "true" }) end
 
   local Game = require("src.core.Game")
 

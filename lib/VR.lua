@@ -870,11 +870,17 @@ function VR.update(dt)
     if VRXR.start(qw, qh) then
       started = true
       status = "session created"
-      print("[DRAMATIC_SHAPE] VR: " .. VRXR.status())
+      local msg = "VR: " .. tostring(VRXR.status())
+      if V and V.dlog then V.dlog(msg)
+      elseif V and V.log then V.log:info("%s", msg)
+      else print("[DRAMATIC_SHAPE] " .. msg) end
     else
       failed = VRXR.status()
-      print("[DRAMATIC_SHAPE] VR unavailable: " .. failed
-            .. " -- fix that, then toggle the VR row to retry")
+      local msg = "VR unavailable: " .. tostring(failed)
+                  .. " -- fix that, then toggle the VR row to retry"
+      if V and V.dlog then V.dlog(msg)
+      elseif V and V.log then V.log:warn("%s", msg)
+      else print("[DRAMATIC_SHAPE] " .. msg) end
       return
     end
   end

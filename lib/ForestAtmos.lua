@@ -154,7 +154,10 @@ local said = {}
 local function say(key, msg)
   if said[key] then return end
   said[key] = true
-  print("[DRAMATIC_SHAPE] atmos: " .. msg)
+  msg = "atmos: " .. tostring(msg)
+  if V and V.dlog then V.dlog(msg)
+  elseif V and V.log then V.log:info("%s", msg)
+  else print("[DRAMATIC_SHAPE] " .. msg) end
 end
 
 function ForestAtmos.invalidate(mapId)

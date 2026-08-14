@@ -242,15 +242,30 @@ function ShadowMap.available()
   -- depth/canvas path is known-bad, so stay off. Unknown platform continues.
   do
     local ok, os = pcall(function() return love.system.getOS() end)
-    if ok and os == "iOS" then return false end
+    if ok and os == "iOS" then
+      if V.log and not V._shadowIos then
+        V._shadowIos = true
+        V.log:event("shadowmap", "unavailable", { reason = "ios" })
+      end
+      return false
+    end
   end
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then
+    if V.log and not V._shadowGfx then
+      V._shadowGfx = true
+      V.log:event("shadowmap", "unavailable", { reason = "no-depth-canvas" })
+    end
     return false
   end
   -- the smallest rung is enough to answer the question; fit() picks the
   -- one this frame actually wants
-  return getShader() ~= nil and getCanvas(ShadowMap.SIZES[1]) ~= nil
+  local ok = getShader() ~= nil and getCanvas(ShadowMap.SIZES[1]) ~= nil
+  if not ok and V.log and not V._shadowRes then
+    V._shadowRes = true
+    V.log:event("shadowmap", "unavailable", { reason = "shader-or-canvas" })
+  end
+  return ok
 end
 
 -- The map to sample, or the blank stand-in. Never nil once the main pass

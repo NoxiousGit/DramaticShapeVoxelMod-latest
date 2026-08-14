@@ -382,6 +382,7 @@ function FreeMove.install()
   end
 
   OverworldState.dramaticShapeFreeMoveHook = true
+  if V.log then V.log:event("input", "FreeMove.install", { ok = "true" }) end
 end
 
 return FreeMove

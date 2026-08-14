@@ -26,9 +26,18 @@
 -- GPU-side saving shows up in the FRAME numbers rather than in the label
 -- for the pass that caused it, and both are reported.
 
+local V = ...
 local Perf = {}
 
 local clock = (love and love.timer and love.timer.getTime) or os.clock
+
+-- Route perf lines into the mod diagnostic log when available.
+local function emit(msg)
+  msg = tostring(msg)
+  print(msg)
+  if V and V.dlog then V.dlog(msg)
+  elseif V and V.log then V.log:info("%s", msg) end
+end
 
 -- Read through pcall: the loader's sandbox does not hand a mod `os`, and
 -- instrumentation must never be the reason the mod fails to load. Same
@@ -230,27 +239,27 @@ local function sortedLabels(store, order)
 end
 
 function Perf.printReport(title)
-  print(("[perf] ==== %s ===="):format(tostring(title or "report")))
+  emit(("[perf] ==== %s ===="):format(tostring(title or "report")))
   local f = Perf.frameStats()
-  print(("[perf] frames n=%d avg=%.2fms p50=%.2f p95=%.2f p99=%.2f worst=%.2f  >16.7ms=%d  >33.3ms=%d")
+  emit(("[perf] frames n=%d avg=%.2fms p50=%.2f p95=%.2f p99=%.2f worst=%.2f  >16.7ms=%d  >33.3ms=%d")
     :format(f.n, f.avg, f.p50, f.p95, f.p99, f.worst, f.over16, f.over33))
   for _, seg in ipairs(Perf.segments) do
     local s = Perf.frameStats(seg.frames)
-    print(("[perf] seg %-28s n=%4d avg=%6.2f p95=%6.2f p99=%6.2f worst=%7.2f >16.7=%3d >33.3=%3d")
+    emit(("[perf] seg %-28s n=%4d avg=%6.2f p95=%6.2f p99=%6.2f worst=%7.2f >16.7=%3d >33.3=%3d")
       :format(seg.name, s.n, s.avg, s.p95, s.p99, s.worst, s.over16, s.over33))
   end
-  print("[perf] ---- labels (ms, sorted by total) ----")
+  emit("[perf] ---- labels (ms, sorted by total) ----")
   for _, lbl in ipairs(sortedLabels(Perf.labels, Perf.order)) do
     local s = Perf.labels[lbl]
-    print(("[perf] %-46s n=%6d total=%9.1f max=%8.2f")
+    emit(("[perf] %-46s n=%6d total=%9.1f max=%8.2f")
       :format(lbl, s.n, s.total * 1000, s.max * 1000))
   end
   local names = {}
   for k in pairs(Perf.counters) do names[#names + 1] = k end
   table.sort(names)
-  if #names > 0 then print("[perf] ---- counters ----") end
+  if #names > 0 then emit("[perf] ---- counters ----") end
   for _, k in ipairs(names) do
-    print(("[perf] %-46s %d"):format(k, Perf.counters[k]))
+    emit(("[perf] %-46s %d"):format(k, Perf.counters[k]))
   end
 end
 
@@ -324,11 +333,11 @@ function Perf.write(name, meta)
   local ok = pcall(function()
     love.filesystem.createDirectory("ds_bench")
     love.filesystem.write("ds_bench/" .. name .. ".json", body)
-    print("[perf] wrote " .. tostring(love.filesystem.getSaveDirectory())
+    emit("[perf] wrote " .. tostring(love.filesystem.getSaveDirectory())
           .. "/ds_bench/" .. name .. ".json")
   end)
   if ok then return true end
-  print("[perf] JSON " .. name .. ": " .. body)
+  emit("[perf] JSON " .. name .. ": " .. body)
   return false
 end
 

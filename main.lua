@@ -119,6 +119,27 @@ local HordeSfx = V.require("HordeSfx")
 local LetsGo = V.require("LetsGo")
 local Pokeball = V.require("Pokeball")
 
+-- ------- diagnostics (mod.storage-backed log)
+--
+-- Same idea as StadiumBattleFX: a ring of event lines persisted under
+-- diagnostics/log in this mod's playthrough storage, exportable via
+-- mod.exports.diagnosticLog() and a SAVE DIAGNOSTIC SNAPSHOT options row.
+local ModStorage = V.require("ModStorage")
+V.storage = ModStorage
+local ModLog = V.require("ModLog")
+V.log = ModLog.new(mod.log)
+local ModLogExport = V.require("ModLogExport")
+
+-- Compatibility bridge used by gen2-gold-beta-style call sites (V.dlog).
+-- Routes into the persistent mod.storage log instead of love.filesystem.
+function V.dlog(msg)
+  msg = tostring(msg)
+  if V.log then V.log:info("%s", msg) end
+  print("[DRAMATIC_SHAPE] " .. msg)
+end
+V.dlog(("main.lua loading path=%s id=%s"):format(
+  tostring(mod.path), tostring(mod.id)))
+
 -- Forward declaration: the voxel pipeline's update hook (registered below)
 -- calls this, and it is defined further down with the settings it drives.
 -- Declared rather than left global -- a mod writing to _G would leak into
@@ -177,7 +198,19 @@ mod.content.render_pipelines:register("voxel", {
   -- answer false here, and the engine keeps the vanilla 2D path -- which
   -- is why no caller ever has to guard for a missing 3D pass.
   available = function()
-    return Voxel3D.available()
+    local ok, avail = pcall(Voxel3D.available)
+    if not ok then
+      if not V._voxelAvailLogged then
+        V._voxelAvailLogged = true
+        V.log:error("Voxel3D.available raised: %s", tostring(avail))
+      end
+      return false
+    end
+    if not V._voxelAvailLogged then
+      V._voxelAvailLogged = true
+      V.log:event("voxel", "available", { ok = avail and "true" or "false" })
+    end
+    return avail and true or false
   end,
 
   -- the engine hands over the live level; we ease the camera toward it.
@@ -191,6 +224,21 @@ mod.content.render_pipelines:register("voxel", {
   -- pump slice -- so stepping out of a door lands on terrain that is
   -- already there instead of a flat flash.
   update = function(dt, level)
+    -- Bind playthrough storage once a Game exists so diagnostics can persist.
+    if not ModStorage.game() then
+      local okG, Game = pcall(require, "src.core.Game")
+      if okG and Game then
+        ModStorage.setGame(Game)
+        V.log:event("runtime", "game-bound", {})
+      end
+    end
+    -- gen2-gold-beta: one-shot first-tick snapshot (level + capability).
+    if not V._updLogged then
+      V._updLogged = true
+      local okA, avail = pcall(function() return Voxel3D.available() end)
+      V.dlog(("voxel update first tick level=%s available=%s"):format(
+        tostring(level), okA and tostring(avail) or tostring(avail)))
+    end
     -- FULL is a preset, so it is applied ON THE PRESS rather than held every
     -- frame: it SETS the other rows and then leaves them alone. Holding them
     -- would make the zoom keys and the wheel dead while the mode was on, and
@@ -220,7 +268,9 @@ mod.content.render_pipelines:register("voxel", {
       local okLG, errLG = pcall(LetsGo.update, dt)
       if not okLG and not V.letsGoWarned then
         V.letsGoWarned = true
-        mod.log:warn("LET'S GO update failed: %s", tostring(errLG))
+        local msg = ("LET'S GO update failed: %s"):format(tostring(errLG))
+        V.log:error("%s", msg)
+        V.dlog(msg)
       end
     end
     -- The overworld battle rides this hook rather than owning a pipeline of
@@ -305,9 +355,69 @@ mod.content.render_pipelines:register("voxel", {
     -- canvas it was handed, so the sky's dither, the water's march and the
     -- camera itself all come out the same picture at a higher sample rate.
     local rw, rh = AntiAlias.expand(sw, sh)
-    local canvas = VoxelScene.render(ctx.state, rw, rh,
-                                     ctx.vw, ctx.vh, ctx.paletteFor)
-    if not canvas then return nil end   -- fall back to the 2D path
+    local st = ctx.state
+
+    -- gen2-gold-beta meshKick diagnostics: once per session, name the map
+    -- and force a short pump so a stuck empty cache surfaces as a real
+    -- build failure rather than an endless silent 2D fallback.
+    if st and st.map and not V._meshKick then
+      V._meshKick = true
+      local map = st.map
+      local ts = map.tileset
+      local sample = nil
+      pcall(function() sample = map:tileAt(0, 0) end)
+      V.dlog(("meshKick map=%s tileset=%s hasBlocks=%s tileAt00=%s"):format(
+        tostring(map.id),
+        tostring(ts and ts.id),
+        tostring(ts and ts.blocks ~= nil),
+        tostring(sample)))
+      local okB, errB = pcall(function()
+        ChunkMesher.request(map, true, {}, true)
+        ChunkMesher.request(map, false, {}, true)
+        for _ = 1, 30 do
+          ChunkMesher.pump(true)
+          if ChunkMesher.pair(map, true) or ChunkMesher.pair(map, false) then
+            break
+          end
+        end
+      end)
+      if not okB then V.dlog("meshKick error: " .. tostring(errB)) end
+      local body = select(1, ChunkMesher.pair(map, true))
+      local full = select(1, ChunkMesher.pair(map, false))
+      V.dlog(("meshKick after pump pending=%s body=%s full=%s"):format(
+        tostring(ChunkMesher.pending()),
+        tostring(body ~= nil),
+        tostring(full ~= nil)))
+    end
+
+    local okDraw, canvas = pcall(VoxelScene.render, st, rw, rh,
+                                 ctx.vw, ctx.vh, ctx.paletteFor)
+    if not okDraw then
+      if not V.drawWorldWarned then
+        V.drawWorldWarned = true
+        V.dlog(("drawWorld 3D failed: %s"):format(tostring(canvas)))
+      end
+      return nil
+    end
+    if not canvas then
+      if not V._nilDrawLogged then
+        V._nilDrawLogged = true
+        local map = st and st.map
+        local body = map and select(1, ChunkMesher.pair(map, true))
+        local full = map and select(1, ChunkMesher.pair(map, false))
+        V.dlog(("drawWorld nil canvas map=%s pending=%s body=%s full=%s"):format(
+          tostring(map and map.id),
+          tostring(ChunkMesher.pending()),
+          tostring(body ~= nil),
+          tostring(full ~= nil)))
+      end
+      return nil   -- fall back to the 2D path
+    end
+    if not V._drawOkLogged then
+      V._drawOkLogged = true
+      V.dlog(("drawWorld 3D ok map=%s"):format(
+        tostring(st and st.map and st.map.id)))
+    end
     if Voxel3D.beginOverlay() then
       -- the FX closures are ordinary 2D draws sized in DISPLAY pixels, and
       -- they are drawing into the supersampled canvas alongside everything
@@ -660,7 +770,8 @@ local function cycleVoxel(game)
   if Horde.viewLocked() then return false end
   local top = game.stack and game.stack:top()
   if not Pipelines.canToggle("voxel", top, game.overworld) then return false end
-  Pipelines.setLevel("voxel", Voxel.nextHotkeyLevel(Pipelines.level("voxel")))
+  local nextLevel = Voxel.nextHotkeyLevel(Pipelines.level("voxel"))
+  Pipelines.setLevel("voxel", nextLevel)
   Pipelines.syncOptions(game.save.options)
   -- 3 is the key that used to turn TILT on and sits next to the one that
   -- used to turn GBC FX on, and this mod has taken both away. A player who
@@ -672,6 +783,7 @@ local function cycleVoxel(game)
   require("src.render.GBCFX").setLevel(0)
   require("src.render.Tilt").setLevel(game.save.options.tilt or 0)
   game:writeOptions()
+  V.log:event("voxel", "cycle", { level = nextLevel })
   return true
 end
 
@@ -1049,6 +1161,12 @@ mod.events:on("map.reloaded", function(payload)
   -- the atmosphere's layout stands on the same carved stamps the meshes
   -- do, so it goes stale on exactly the same event
   if mapId then ForestAtmos.invalidate(mapId) end
+  if V.log then
+    V.log:event("map", "reloaded", {
+      map = mapId or "unknown",
+      reason = payload and payload.reason or "unknown",
+    })
+  end
 end)
 
 -- ------- rows come and go, so the menu has to notice
@@ -1248,8 +1366,16 @@ mod.events:on("save.created", function() ShinyBattle.markParty() end)
 -- per-cell consequence still runs through the engine's own machinery
 -- (onStepComplete, checkEdgeExit, checkLedgeHop, checkBoulderPush). The
 -- file argues the whole arrangement.
-FirstPerson.install()
-FreeMove.install()
+do
+  local ok, err = pcall(FirstPerson.install)
+  if ok then V.log:event("input", "FirstPerson.install", { ok = "true" })
+  else V.log:error("FirstPerson.install failed: %s", tostring(err)) end
+end
+do
+  local ok, err = pcall(FreeMove.install)
+  if ok then V.log:event("input", "FreeMove.install", { ok = "true" })
+  else V.log:error("FreeMove.install failed: %s", tostring(err)) end
+end
 
 -- ------- the zooms, and the battle camera the player can steer
 --
@@ -1260,7 +1386,11 @@ FreeMove.install()
 -- wrap installed later is the OUTER one, so a fight gets first refusal on
 -- the mouse and the fingers, which is right, because while one is staged
 -- the free-roam look is not driving.
-CamControl.install()
+do
+  local ok, err = pcall(CamControl.install)
+  if ok then V.log:event("input", "CamControl.install", { ok = "true" })
+  else V.log:error("CamControl.install failed: %s", tostring(err)) end
+end
 
 -- ------- SELECT walks the angle ladder
 --
@@ -1346,6 +1476,10 @@ end
 -- shown.
 mod.events:on("battle.started", function(payload)
   OverworldBattle.ensure(payload and payload.battle)
+  local b = payload and payload.battle
+  V.log:event("battle", "started", {
+    kind = b and b.kind or "unknown",
+  })
 end)
 
 -- Both mons face the camera, so the player's side wants its FRONT pic where
@@ -1372,6 +1506,7 @@ end)
 -- so this is where the map's cast comes back.
 mod.events:on("battle.ended", function()
   OverworldBattle.finish()
+  V.log:event("battle", "ended", {})
 end)
 
 -- ------- and the way back out
@@ -1414,17 +1549,25 @@ mod.events:on("save.writing", function()
 end)
 
 mod.events:on("save.loaded", function()
+  local okG, Game = pcall(require, "src.core.Game")
+  if okG and Game then ModStorage.setGame(Game) end
   DayNight.restore()
   -- a save written before this mod was installed can carry TILT or GBC FX
   -- switched on, and their rows are not there to switch them back off (see
   -- pinEngineFx). Answered here rather than only when the menu opens, so a
   -- player who never opens it is not left playing under one.
   pinEngineFx()
+  V.log:event("save", "loaded", {})
+  pcall(function() V.log:flush() end)
 end)
 
 mod.events:on("save.created", function()
+  local okG, Game = pcall(require, "src.core.Game")
+  if okG and Game then ModStorage.setGame(Game) end
   DayNight.restore()
   pinEngineFx()
+  V.log:event("save", "created", {})
+  pcall(function() V.log:flush() end)
 end)
 
 -- The engine's own time-of-day seam. OverworldState:timeOfDay() is an
@@ -1442,3 +1585,21 @@ mod.exports.version = "1.5.5"
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
+-- Diagnostic ring buffer (also under mod.storage key diagnostics/log).
+mod.exports.diagnosticLog = function()
+  return V.log and V.log:contents() or ""
+end
+mod.exports.flushDiagnostics = function()
+  return V.log and V.log:flush()
+end
+
+-- Options row: SAVE DIAGNOSTIC SNAPSHOT (forces a flush to mod.storage).
+mod.hooks:wrap("ui.options.rows", function(next, game, rows)
+  local out = next(game, rows)
+  if type(out) ~= "table" then return out end
+  if game then ModStorage.setGame(game) end
+  out[#out + 1] = ModLogExport.row()
+  return out
+end)
+
+V.log:info("main.lua load complete")

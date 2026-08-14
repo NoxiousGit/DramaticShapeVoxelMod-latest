@@ -412,6 +412,7 @@ function CamControl.install()
       return inner(self, f)
     end
   end
+  if V.log then V.log:event("input", "CamControl.install", { ok = "true" }) end
 end
 
 return CamControl

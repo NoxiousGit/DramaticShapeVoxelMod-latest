@@ -570,7 +570,14 @@ function OverworldBattle.ensure(battle)
   end
   local g = game()
   local ow = g and g.overworld
-  if ow and ow.map then OverworldBattle.begin(ow, battle) end
+  if ow and ow.map then
+    OverworldBattle.begin(ow, battle)
+    if V.log then
+      V.log:event("owbattle", "ensure", {
+        map = ow.map and ow.map.id or "unknown",
+      })
+    end
+  end
 end
 
 -- The arena this battle is staged on, or nil. Read by the shot driver so a
@@ -585,6 +592,7 @@ function OverworldBattle.finish()
   session = nil
   Voxel3D.camera = nil
   pcall(function() V.require("Stadium").finish() end)
+  if V.log then V.log:event("owbattle", "finish", {}) end
 end
 
 -- ------- per-frame
@@ -692,8 +700,11 @@ function OverworldBattle.update(dt)
     session.shot = nil
     session.snapped = false
     session.broken = true
-    V.mod.log:warn("overworld battle scene failed: %s -- this battle draws "
-                   .. "on the plain battle background", tostring(shot))
+    local msg = ("overworld battle scene failed: %s -- this battle draws "
+                 .. "on the plain battle background"):format(tostring(shot))
+    if V.log then V.log:warn("%s", msg)
+    elseif V.dlog then V.dlog(msg)
+    elseif V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
     return
   end
   session.snapped = false
@@ -722,8 +733,11 @@ function OverworldBattle.update(dt)
     -- do it sixty times a second either, and the fallback is silent and fine
     if not okHud and not session.hudWarned then
       session.hudWarned = true
-      V.mod.log:warn("overworld battle HUD snap failed: %s -- the HUDs draw "
-                     .. "in the battle frame this battle", tostring(up))
+      local msg = ("overworld battle HUD snap failed: %s -- the HUDs draw "
+                   .. "in the battle frame this battle"):format(tostring(up))
+      if V.log then V.log:warn("%s", msg)
+      elseif V.dlog then V.dlog(msg)
+      elseif V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
     end
   end
   session.shot = shot

@@ -472,6 +472,9 @@ function FirstPerson.update(dt)
     end)
     FirstPerson.yaw = (ok and FACING_ANGLE[facing]) or 0
     FirstPerson.pitch = FirstPerson.PITCH_DEFAULT
+    if V.log then V.log:event("camera", "firstperson-enter", { facing = facing or "unknown" }) end
+  elseif wasEngaged and not engagedNow then
+    if V.log then V.log:event("camera", "firstperson-leave", {}) end
   end
   wasEngaged = engagedNow
 

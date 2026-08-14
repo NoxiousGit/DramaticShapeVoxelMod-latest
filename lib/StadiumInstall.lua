@@ -269,8 +269,12 @@ local function writePack(species, bytes, shinyBytes)
     -- its model. Left unwritten, the runtime shows the normal one.
     local sok, serr = f.write(
       ("%s/%03ds.dsm"):format(StadiumInstall.DIR, species), shinyBytes)
-    if not sok and V.mod and V.mod.log then
-      V.mod.log.warn("shiny pack %03d not written: %s", species, tostring(serr))
+    if not sok then
+      local msg = ("shiny pack %03d not written: %s"):format(
+        species, tostring(serr))
+      if V.log then V.log:warn("%s", msg)
+      elseif V.dlog then V.dlog(msg)
+      elseif V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
     end
   end
   return true
@@ -280,12 +284,19 @@ end
 -- plus a reason when there is nothing to build from.
 function StadiumInstall.begin()
   local f = fs()
-  if not f then return false, "no filesystem" end
+  if not f then
+    if V.log then V.log:warn("StadiumInstall.begin: no filesystem") end
+    return false, "no filesystem"
+  end
   local path = StadiumInstall.romPath()
-  if not path then return false, "no ROM in " .. StadiumInstall.ROM_DIR end
+  if not path then
+    if V.log then V.log:warn("StadiumInstall.begin: no ROM in %s", StadiumInstall.ROM_DIR) end
+    return false, "no ROM in " .. StadiumInstall.ROM_DIR
+  end
 
   local okRead, bytes = pcall(f.read, path)
   if not (okRead and type(bytes) == "string") then
+    if V.log then V.log:warn("StadiumInstall.begin: could not read %s", tostring(path)) end
     return false, "could not read " .. path
   end
   return StadiumInstall.beginFrom(bytes, path)
@@ -303,13 +314,28 @@ end
 -- `label` is only ever used to say WHICH file a complaint is about.
 function StadiumInstall.beginFrom(bytes, label)
   local f = fs()
-  if not f then return false, "no filesystem" end
-  if type(bytes) ~= "string" or #bytes == 0 then return false, "empty file" end
+  if not f then
+    if V.log then V.log:warn("StadiumInstall.beginFrom: no filesystem") end
+    return false, "no filesystem"
+  end
+  if type(bytes) ~= "string" or #bytes == 0 then
+    if V.log then V.log:warn("StadiumInstall.beginFrom: empty file label=%s", tostring(label)) end
+    return false, "empty file"
+  end
 
   local StadiumRom = V.require("StadiumRom")
   local StadiumBuild = V.require("StadiumBuild")
   local rom, err = StadiumRom.open(bytes)
-  if not rom then return false, tostring(err) end
+  if not rom then
+    if V.log then V.log:error("StadiumRom.open failed: %s", tostring(err)) end
+    return false, tostring(err)
+  end
+  if V.log then
+    V.log:event("stadium", "beginFrom", {
+      label = label or "bytes",
+      size = #bytes,
+    })
+  end
   status.wrongVersion = false
   if not rom:isExpectedUS() then
     -- Built anyway rather than refused: a dump can differ from the reference
@@ -319,11 +345,14 @@ function StadiumInstall.beginFrom(bytes, label)
     -- promised, so it is said loudly, with the md5 that IS expected so the
     -- player can check their own file against it.
     status.wrongVersion = true
-    V.mod.log:warn("stadium: %s is md5 %s -- the model offsets are keyed to "
-                   .. "Pokemon Stadium (US) 1.0, which is md5 %s. Building "
-                   .. "anyway, but the models may be wrong or fail to build.",
-                   tostring(label or "the ROM"), tostring(rom:md5()),
-                   tostring(StadiumRom.US_MD5))
+    local msg = ("stadium: %s is md5 %s -- the model offsets are keyed to "
+                 .. "Pokemon Stadium (US) 1.0, which is md5 %s. Building "
+                 .. "anyway, but the models may be wrong or fail to build."):format(
+      tostring(label or "the ROM"), tostring(rom:md5()),
+      tostring(StadiumRom.US_MD5))
+    if V.log then V.log:warn("%s", msg)
+    elseif V.dlog then V.dlog(msg)
+    elseif V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
   end
 
   -- ------- refuse a ROM with no models in it, BEFORE anything is written

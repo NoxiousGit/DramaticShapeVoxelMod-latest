@@ -1052,8 +1052,14 @@ local function finishJob(job, ok, err)
   end
   if not ok then
     -- name the reason: in a real session a lost build is a black map
-    print("[warn] voxel mesh build failed for " .. tostring(job.id)
-          .. ": " .. tostring(err))
+    local msg = "[warn] voxel mesh build failed for " .. tostring(job.id)
+                .. ": " .. tostring(err)
+    print(msg)
+    if V and V.dlog then V.dlog(msg) end
+    if V and V.log then
+      V.log:error("async mesh build failed map=%s: %s",
+        tostring(job.id), tostring(err))
+    end
     if (gen[job.id] or 0) == job.gen then
       entry(job.id)[job.slot] = false
     end
@@ -1201,8 +1207,14 @@ function ChunkMesher.get(map, bodyOnly, masks)
     local ok, mesh, water = pcall(ChunkMesher.build, map, bodyOnly, masks,
                                   true)
     if not ok then
-      print("[warn] voxel mesh build failed for " .. tostring(map.id)
-            .. ": " .. tostring(mesh))
+      local msg = "[warn] voxel mesh build failed for " .. tostring(map.id)
+                  .. ": " .. tostring(mesh)
+      print(msg)
+      if V and V.dlog then V.dlog(msg) end
+      if V.log then
+        V.log:error("mesh build failed map=%s slot=%s: %s",
+          tostring(map.id), tostring(slot), tostring(mesh))
+      end
     end
     swapSlot(c, slot, (ok and mesh) or false)
     swapSlot(c, waterSlot(slot), (ok and water) or false)

@@ -373,9 +373,12 @@ function StadiumScreen.maybePush()
       local label = (okPick and pick and pick.LABEL) or "STADIUM ROM"
       local how = (okPick and pick and pick.canDialog())
                   and "opens a file picker" or "says where to put one"
-      V.mod.log:info("stadium: no Pokemon Stadium (US) 1.0 ROM found, so the "
-                     .. "STADIUM battle rungs are off. OPTIONS -> %s %s; the "
-                     .. "folder is %s", label, how, StadiumInstall.romHint())
+      local msg = ("stadium: no Pokemon Stadium (US) 1.0 ROM found, so the "
+                   .. "STADIUM battle rungs are off. OPTIONS -> %s %s; the "
+                   .. "folder is %s"):format(label, how, StadiumInstall.romHint())
+      if V.log then V.log:info("%s", msg)
+      elseif V.dlog then V.dlog(msg)
+      elseif V.mod and V.mod.log then V.mod.log:info("%s", msg) end
     end
     return false
   end

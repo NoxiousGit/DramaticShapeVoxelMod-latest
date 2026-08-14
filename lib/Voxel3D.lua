@@ -597,9 +597,18 @@ end
 function Voxel3D.available()
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then
+    if V.log and not V._v3dAvailGfx then
+      V._v3dAvailGfx = true
+      V.log:event("voxel3d", "unavailable", { reason = "no-depth-canvas" })
+    end
     return false
   end
-  return Voxel3D.shader() ~= nil
+  local ok = Voxel3D.shader() ~= nil
+  if not ok and V.log and not V._v3dAvailShader then
+    V._v3dAvailShader = true
+    V.log:event("voxel3d", "unavailable", { reason = "shader-nil" })
+  end
+  return ok
 end
 
 -- Build a mesh in the shared format. `verts` is the LOVE vertex list and

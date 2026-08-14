@@ -368,12 +368,15 @@ local function getShader()
       local ok, sh = pcall(love.graphics.newShader, SHADER_SRC)
       if ok and sh then
         shader = sh
-      elseif V and V.mod and V.mod.log then
+      else
         -- once, and only where it can be read: the fallback below is a sky
         -- without its dither, which is easy to look at and impossible to
         -- diagnose without this line
-        V.mod.log:warn("sky shader did not compile: %s -- the bands draw flat, "
-                       .. "with no dither between them", tostring(sh))
+        local msg = ("sky shader did not compile: %s -- the bands draw flat, "
+                     .. "with no dither between them"):format(tostring(sh))
+        if V and V.log then V.log:warn("%s", msg)
+        elseif V and V.dlog then V.dlog(msg)
+        elseif V and V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
       end
     end
   end

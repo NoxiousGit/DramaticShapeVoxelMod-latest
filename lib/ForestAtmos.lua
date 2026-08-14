@@ -84,8 +84,12 @@ end
 -- ModSetting's unknown-value fallback lands it on LOW, and putting the
 -- save back on the desktop restores the choice.
 local function onAndroid()
-  if not (love and love.system and love.system.getOS) then return false end
-  local ok, os = pcall(love.system.getOS)
+  -- love.system is sandboxed away from mods (gen1recomp sandbox). Accessing
+  -- it raises; the pcall below catches that so we treat the platform as
+  -- unknown and fall back to the full ladder. ModSetting's unknown-value
+  -- path still maps a stored FULL to LOW on phones, and FULL is a no-op
+  -- on Android (no readable depth texture).
+  local ok, os = pcall(function() return love.system.getOS() end)
   return ok and os == "Android"
 end
 

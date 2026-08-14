@@ -88,7 +88,10 @@ local NAMED = {
 }
 
 local function fs()
-  return love and love.filesystem
+  -- love.filesystem is sandboxed away from mods. Return nil when blocked
+  -- so callers treat the filesystem as unavailable rather than raising.
+  local ok, f = pcall(function() return love.filesystem end)
+  return (ok and f) or nil
 end
 
 local function isFile(path)

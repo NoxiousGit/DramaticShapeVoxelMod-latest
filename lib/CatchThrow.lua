@@ -1338,35 +1338,37 @@ function CatchThrow.installInput()
   -- these are the OUTER ones and the aim owns the button first. Bare
   -- motion is not claimed -- CamControl's battle steer already stands
   -- down while the capture holds the camera (BattleCam.steerable).
+  -- Assigning love.* callbacks is blocked by the mod sandbox; wrap the
+  -- Game methods that main.lua routes those callbacks into instead.
   do
-    local inner = love.mousepressed
-    love.mousepressed = function(x, y, button, istouch, presses)
+    local inner = Game.mousepressed
+    function Game:mousepressed(x, y, button, istouch, presses)
       if aiming() and not istouch and button == 1 then
         pointer("press", x, y, "mouse")
         return
       end
-      if inner then return inner(x, y, button, istouch, presses) end
+      if inner then return inner(self, x, y, button, istouch, presses) end
     end
   end
   do
-    local inner = love.mousemoved
-    love.mousemoved = function(x, y, dx, dy, istouch)
+    local inner = Game.mousemoved
+    function Game:mousemoved(x, y, dx, dy, istouch)
       if aiming() and not istouch and S.grab and S.grab.id == "mouse" then
         pointer("move", x, y, "mouse")
         return
       end
-      if inner then return inner(x, y, dx, dy, istouch) end
+      if inner then return inner(self, x, y, dx, dy, istouch) end
     end
   end
   do
-    local inner = love.mousereleased
-    love.mousereleased = function(x, y, button, istouch, presses)
+    local inner = Game.mousereleased
+    function Game:mousereleased(x, y, button, istouch, presses)
       if aiming() and not istouch and button == 1
          and S.grab and S.grab.id == "mouse" then
         pointer("release", x, y, "mouse")
         return
       end
-      if inner then return inner(x, y, button, istouch, presses) end
+      if inner then return inner(self, x, y, button, istouch, presses) end
     end
   end
 

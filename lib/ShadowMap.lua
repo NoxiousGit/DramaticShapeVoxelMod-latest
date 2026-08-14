@@ -238,8 +238,11 @@ end
 -- where nothing stands in (see lib/Shadows).
 function ShadowMap.available()
   if not ShadowMap.wanted() then return false end
-  if love.system and love.system.getOS and love.system.getOS() == "iOS" then
-    return false
+  -- love.system is sandboxed away from mods; probe via pcall. On iOS the
+  -- depth/canvas path is known-bad, so stay off. Unknown platform continues.
+  do
+    local ok, os = pcall(function() return love.system.getOS() end)
+    if ok and os == "iOS" then return false end
   end
   if not (love.graphics and love.graphics.newCanvas
           and love.graphics.setDepthMode) then

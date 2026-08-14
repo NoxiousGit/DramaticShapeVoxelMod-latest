@@ -674,13 +674,13 @@ end
 
 -- ------- input capture
 --
--- The seams: relative mouse motion has no Game handler at all (the
--- engine's love.mousemoved only feeds the mouse-as-touch debug path), the
--- right stick's axes are explicitly ignored by Input, and a touch
--- anywhere off the overlay's controls dies in TouchControls. Each wrap
--- forwards everything it does not claim, and claims only while first
--- person is actually driving -- so with the rung off, every byte flows
--- exactly where it always did.
+-- The seams: relative mouse motion is taken by wrapping Game:mousemoved
+-- (main.lua routes love.mousemoved into it), the right stick's axes are
+-- explicitly ignored by Input, and a touch anywhere off the overlay's
+-- controls dies in TouchControls. Each wrap forwards everything it does
+-- not claim, and claims only while first person is actually driving --
+-- so with the rung off, every byte flows exactly where it always did.
+-- Assigning love.* callbacks is blocked by the mod sandbox.
 
 local installed = false
 
@@ -740,19 +740,20 @@ function FirstPerson.install()
 
   -- ------- mouse
   --
-  -- love.mousemoved rather than a Game method, because the engine has no
-  -- Game:mousemoved to wrap -- the callback in the project's main.lua is
-  -- the one place relative counts arrive. Claimed only while captured;
-  -- pass-through otherwise, including the mouse-as-touch path.
+  -- Wrap Game:mousemoved / mousepressed / mousereleased (the engine now
+  -- has these methods and main.lua routes the love callbacks into them).
+  -- Assigning love.mousemoved etc. is blocked by the mod sandbox.
+  -- Claimed only while captured; pass-through otherwise, including the
+  -- mouse-as-touch path.
   do
-    local inner = love.mousemoved
-    love.mousemoved = function(x, y, dx, dy, istouch)
+    local inner = Game.mousemoved
+    function Game:mousemoved(x, y, dx, dy, istouch)
       if captured and not istouch then
         mouseDX = mouseDX + (dx or 0)
         mouseDY = mouseDY + (dy or 0)
         return
       end
-      if inner then return inner(x, y, dx, dy, istouch) end
+      if inner then return inner(self, x, y, dx, dy, istouch) end
     end
   end
   -- While the mouse is captured there is no cursor to click UI with, so
@@ -782,8 +783,8 @@ function FirstPerson.install()
     return false
   end
   do
-    local inner = love.mousepressed
-    love.mousepressed = function(x, y, button, istouch, presses)
+    local inner = Game.mousepressed
+    function Game:mousepressed(x, y, button, istouch, presses)
       if captured and not istouch and hordeMouse(button, true) then return end
       if captured and not istouch and MOUSE_BTN[button] then
         local Input = require("src.core.Input")
@@ -791,12 +792,12 @@ function FirstPerson.install()
         Input:overlayPressed(MOUSE_BTN[button])
         return
       end
-      if inner then return inner(x, y, button, istouch, presses) end
+      if inner then return inner(self, x, y, button, istouch, presses) end
     end
   end
   do
-    local inner = love.mousereleased
-    love.mousereleased = function(x, y, button, istouch, presses)
+    local inner = Game.mousereleased
+    function Game:mousereleased(x, y, button, istouch, presses)
       -- a release always reaches whoever owns the press: the horde's
       -- aim-hold has to let go even if the mode ended mid-click
       if not mouseHeld[button] and hordeMouse(button, false) then return end
@@ -806,7 +807,7 @@ function FirstPerson.install()
         Input:overlayReleased(MOUSE_BTN[button])
         return
       end
-      if inner then return inner(x, y, button, istouch, presses) end
+      if inner then return inner(self, x, y, button, istouch, presses) end
     end
   end
 

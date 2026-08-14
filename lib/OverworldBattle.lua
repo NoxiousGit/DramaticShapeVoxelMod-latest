@@ -435,7 +435,10 @@ end
 local session = nil
 
 local function isIOS()
-  return love.system and love.system.getOS and love.system.getOS() == "iOS"
+  -- love.system is sandboxed away from mods; pcall so a blocked access is
+  -- treated as "not iOS" rather than raising.
+  local ok, os = pcall(function() return love.system.getOS() end)
+  return ok and os == "iOS"
 end
 
 local function game()

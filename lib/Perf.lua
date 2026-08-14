@@ -41,10 +41,11 @@ local function envFlag(name)
 end
 
 local function flagFile()
-  if not (love and love.filesystem and love.filesystem.getInfo) then
-    return false
-  end
-  local ok, info = pcall(love.filesystem.getInfo, "ds_perf.flag")
+  -- love.filesystem is sandboxed away from mods. Probe via pcall so a
+  -- blocked access is treated as "no flag file" rather than raising.
+  local ok, info = pcall(function()
+    return love.filesystem.getInfo("ds_perf.flag")
+  end)
   return ok and info ~= nil
 end
 
@@ -315,20 +316,18 @@ function Perf.toJson(meta)
   return table.concat(parts, "")
 end
 
--- Written through love.filesystem (the save directory) rather than io:
--- a driver run and an Android session both have one, and neither is
--- guaranteed a writable working directory.
+-- Written through love.filesystem when the sandbox still allows it; otherwise
+-- fall through to print. love.filesystem is blocked for mods in current
+-- gen1recomp, so the pcall path is the safe one.
 function Perf.write(name, meta)
   local body = Perf.toJson(meta)
-  if love and love.filesystem then
-    pcall(love.filesystem.createDirectory, "ds_bench")
-    local ok = pcall(love.filesystem.write, "ds_bench/" .. name .. ".json", body)
-    if ok then
-      print("[perf] wrote " .. tostring(love.filesystem.getSaveDirectory())
-            .. "/ds_bench/" .. name .. ".json")
-      return true
-    end
-  end
+  local ok = pcall(function()
+    love.filesystem.createDirectory("ds_bench")
+    love.filesystem.write("ds_bench/" .. name .. ".json", body)
+    print("[perf] wrote " .. tostring(love.filesystem.getSaveDirectory())
+          .. "/ds_bench/" .. name .. ".json")
+  end)
+  if ok then return true end
   print("[perf] JSON " .. name .. ": " .. body)
   return false
 end

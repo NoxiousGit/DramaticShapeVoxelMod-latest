@@ -284,8 +284,10 @@ end
 -- would be imported again on the next boot, and kept forever if the import
 -- failed.
 function StadiumRomPick.poll(game)
-  local f = love and love.filesystem
-  if not (f and f.getInfo) then return false end
+  -- love.filesystem is sandboxed away from mods; pcall so a blocked access
+  -- is treated as "no native pick pending" rather than raising.
+  local okFs, f = pcall(function() return love.filesystem end)
+  if not (okFs and f and f.getInfo) then return false end
   if StadiumInstall.status.state == "building" then return false end
   local ok, info = pcall(f.getInfo, StadiumRomPick.PICKED, "file")
   if not (ok and info) then return false end

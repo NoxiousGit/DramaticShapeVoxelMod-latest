@@ -1,6 +1,47 @@
 # Changelog
 
-## Unreleased
+## 1.8.3
+
+### Added
+
+- **Optional StadiumBattleFX Battle Presentation API v1 arena provider.**
+  When StadiumBattleFX is present, Dramatic Shape can contribute its staged
+  voxel-map arena under SBFX's BTL ARENA as "DRAMATIC SHAPE VOXEL MAP".
+  Models, effects, camera, HUD and the rest remain independently selectable;
+  no provider is chosen by load order. Without StadiumBattleFX the mod's
+  existing standalone behaviour is unchanged. Legacy Stadium-disc stages
+  decline the map-arena provider. Includes a standalone registration /
+  lifecycle contract test.
+
+- **Unified mod.storage diagnostic log.** A single sandbox-safe logger
+  (ModStorage / ModLog / ModLogExport) persists under the playthrough key
+  `diagnostics/log`. Replaces scattered `print` / `mod.log` call sites across
+  ForestAtmos, VR, OverworldBattle, HordeSfx, Sky, Water, StadiumInstall,
+  StadiumScreen, Perf, ChunkMesher and the gen2-style `V.dlog` bridge.
+  Adds a **SAVE DIAGNOSTIC SNAPSHOT** options row and `mod.exports.diagnosticLog`
+  / `flushDiagnostics` for export.
+
+### Fixed
+
+- **gen1recomp sandbox compatibility.** The host now blocks direct assignment
+  to `love.*` callbacks and access to `love.system` / `love.filesystem`.
+  - ForestAtmos, ShadowMap, OverworldBattle: probe OS via `pcall` instead of
+    bare `love.system` access (ShadowMap was aborting the voxel draw path).
+  - FirstPerson, CamControl, CatchThrow: wrap `Game:mousemoved` /
+    `mousepressed` / `mousereleased` instead of assigning `love.*` handlers.
+  - Perf, StadiumInstall, StadiumRomPick: guard `love.filesystem` with `pcall`
+    so blocked access fails soft instead of raising.
+  Restores mod load, voxel rendering, and first-person / battle / catch mouse
+  input on current gen1recomp builds.
+
+### Changed
+
+- **Repository metadata.** `manifest.json` github and `mod.card` contact URL
+  now point at the maintained fork `scottcandy34/DramaticShapeVoxelMod-latest`.
+  Author credit for DramaticShape is unchanged.
+
+
+## 1.8.2
 
 ### Added
 

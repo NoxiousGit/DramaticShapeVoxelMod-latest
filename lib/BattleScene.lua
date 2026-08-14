@@ -364,7 +364,7 @@ end
 
 local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
                            atlasFor, cards, token, host, neighbors,
-                           water, nbWater, groundY)
+                           water, nbWater, groundY, externalActors)
   if not ShadowMap.available() then return end
   local sig = shadowSignature(state, arena, terrain, nbMesh, token)
   if not ShadowMap.stale(sig) then return end
@@ -377,7 +377,9 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
     pcall(function()
       V.require("StadiumStage").cast(ShadowMap, arena, groundY or 0)
     end)
-    pcall(function() V.require("Stadium").cast(ShadowMap) end)
+    if not externalActors then
+      pcall(function() V.require("Stadium").cast(ShadowMap) end)
+    end
     ShadowMap.finish(sig)
     return
   end
@@ -421,7 +423,9 @@ local function castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh,
   -- the world -- a Gyarados at the water's edge should put a Gyarados on
   -- the water. Un-snugged for the same reason: snug is a bias for a card
   -- rooted to the ground plane, and a model has thickness of its own.
-  pcall(function() V.require("Stadium").cast(ShadowMap) end)
+  if not externalActors then
+    pcall(function() V.require("Stadium").cast(ShadowMap) end)
+  end
   -- the capture session's ball, by the same reasoning: real geometry, its
   -- shadow is half of what sells the arc
   local cap = BattleScene.capture
@@ -503,7 +507,7 @@ local function tickTiles()
   pcall(require("src.render.TileRenderer").tick)
 end
 
-function BattleScene.render(state, arena, textures, token)
+function BattleScene.render(state, arena, textures, token, drawActors)
   if not (state and state.map and arena) then return nil end
   if not Voxel3D.available() then return nil end
   tickTiles()
@@ -606,10 +610,15 @@ function BattleScene.render(state, arena, textures, token)
   -- and the real one is rebuilt inside the scene below.
   Voxel3D.camera = cam
   Voxel3D.viewProjection(cx, cy, vw, vh)
-  local cards = monCards(arena, groundY, textures)
+  -- When StadiumBattleFX hosts this arena it supplies the independently
+  -- selected actor renderer. Native cards and this mod's Stadium actors must
+  -- then stay out of both the shadow and colour passes.
+  local cards = drawActors and {} or monCards(arena, groundY, textures)
   Voxel3D.camera = nil
   castShadows(state, arena, terrain, nbMesh, cx, cy, vw, vh, atlasFor,
-              cards, token, host, neighbors, water, nbWater, groundY)
+                cards, drawActors and nil or token,
+                host, neighbors, water, nbWater, groundY,
+                drawActors ~= nil)
 
   -- An opaque void either way. Outdoors the camera is low enough that the
   -- horizon is genuinely in frame, so it is sky; indoors it is the dark end
@@ -711,7 +720,7 @@ function BattleScene.render(state, arena, textures, token)
     -- and no glass either: the cards wear the battle screen, not the
     -- tileset atlas, so the mask's coordinates mean nothing on them
     Voxel3D.glass(false)
-    for _, card in ipairs(monCards(arena, groundY, textures)) do
+    for _, card in ipairs(cards) do
       -- the sun stored this card snugged (castShadows), so its own shadow
       -- lookup must read the same snugged transform -- see ShadowMap.snug
       Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
@@ -724,10 +733,12 @@ function BattleScene.render(state, arena, textures, token)
     -- the depth test against the tile. They manage the wireframe and the
     -- glass mask around their own draws (StadiumRig), which is why this
     -- sits outside the pair above rather than inside it.
-    local okStadium, stadiumErr = pcall(function()
-      V.require("Stadium").draw(BattleBillboard.PULL)
-    end)
-    if not okStadium then V.require("Stadium").report(stadiumErr) end
+    if not drawActors then
+      local okStadium, stadiumErr = pcall(function()
+        V.require("Stadium").draw(BattleBillboard.PULL)
+      end)
+      if not okStadium then V.require("Stadium").report(stadiumErr) end
+    end
     -- the capture session's Poke Ball, still inside the flash window and
     -- with the mons' own camera-ward pull, so a ball crossing in front of
     -- a card wins the depth test the way a nearer thing should
@@ -777,6 +788,14 @@ function BattleScene.render(state, arena, textures, token)
                      Mat4.translate(nb.ox, 0, nb.oy), fpull,
                      ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
       end
+    end
+    if drawActors then
+      drawActors({
+        vp = Voxel3D.vp,
+        groundY = groundY,
+        width = pw,
+        height = ph,
+      })
     end
     local canvas = AntiAlias.resolve(Voxel3D.endScene(), pw, ph, "battle")
     if not canvas then return end

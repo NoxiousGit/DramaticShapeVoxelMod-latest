@@ -85,18 +85,36 @@ local function readPack(species, shiny)
     local okS, b = pcall(mod.read, mod, packName(StadiumPack.DIR, species, shiny))
     haveShipped = okS and type(b) == "string" and #b > 4
   end
-  -- A CURRENT cache always wins. A stale one (readable, but built by an older
-  -- extractor) wins only when there is no shipped set to prefer instead --
-  -- that ordering is what stops a cache from an extractor rev we have since
-  -- fixed shadowing good files, while still leaving something on screen for a
-  -- player whose only copy IS that cache. A half-written folder is caught by
-  -- the marker and satisfies neither.
-  if love and love.filesystem and love.filesystem.getInfo
-     and (install.ready() or (install.usable() and not haveShipped)) then
-    local okInfo, info = pcall(love.filesystem.getInfo, rel, "file")
-    if okInfo and info then
-      local ok, bytes = pcall(love.filesystem.read, rel)
-      if ok and type(bytes) == "string" and #bytes > 4 then return bytes end
+  -- Prefer a CURRENT built cache. Under the mod sandbox love.filesystem is
+  -- blocked, so packs live in mod.storage (written by StadiumInstall).
+  if install.ready() or (install.usable() and not haveShipped) then
+    local okFs, bytes = pcall(function()
+      -- Prefer engine persistence FS (works under mod sandbox).
+      local f
+      local okSD, SaveData = pcall(require, "src.core.SaveData")
+      if okSD and SaveData and SaveData.persistenceFs then
+        local okF, pf = pcall(function() return SaveData.persistenceFs() end)
+        if okF then f = pf end
+      end
+      if not f then
+        f = love and love.filesystem
+      end
+      if not (f and f.getInfo and f.read) then return nil end
+      local info = f.getInfo(rel, "file")
+      if not info then return nil end
+      return f.read(rel)
+    end)
+    if okFs and type(bytes) == "string" and #bytes > 4 then return bytes end
+    -- Fallback: mod.storage opaque bytes (keys stadium/001, stadium/001s).
+    local key = shiny and ("stadium/%03ds"):format(species)
+                      or ("stadium/%03d"):format(species)
+    if mod and mod.storage and mod.storage.readBytes then
+      local okG, Game = pcall(require, "src.core.Game")
+      local game = okG and Game or nil
+      if game then
+        local okB, b = pcall(mod.storage.readBytes, mod.storage, game, key)
+        if okB and type(b) == "string" and #b > 4 then return b end
+      end
     end
   end
   if not (mod and mod.read) then return nil end

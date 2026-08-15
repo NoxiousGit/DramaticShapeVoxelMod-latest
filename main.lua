@@ -1397,6 +1397,17 @@ do
   else V.log:error("CamControl.install failed: %s", tostring(err)) end
 end
 
+-- Stadium ROM drop support: love.filedropped for desktops (sandbox may
+-- reject the assignment; fails soft). Mobile uses love.system.pickFile
+-- from the OPTIONS row instead.
+do
+  local ok, err = pcall(function()
+    V.require("StadiumRomPick").install()
+  end)
+  if ok then V.log:event("input", "StadiumRomPick.install", { ok = "true" })
+  else V.log:error("StadiumRomPick.install failed: %s", tostring(err)) end
+end
+
 -- ------- SELECT walks the angle ladder
 --
 -- The same step the "3" key makes, on the pad's own button: a phone (and

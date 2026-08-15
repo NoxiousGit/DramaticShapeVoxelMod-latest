@@ -88,10 +88,23 @@ local NAMED = {
 }
 
 local function fs()
-  -- love.filesystem is sandboxed away from mods. Return nil when blocked
-  -- so callers treat the filesystem as unavailable rather than raising.
+  -- Mods cannot touch love.filesystem (sandbox facade errors). The engine's
+  -- SaveData.persistenceFs() still returns the real save-dir filesystem when
+  -- required as an engine module. IMPORTANT: call with no args -- passing
+  -- the module table makes persistFs treat it as an injected fs and return
+  -- the wrong object.
+  local okSD, SaveData = pcall(require, "src.core.SaveData")
+  if okSD and SaveData and type(SaveData.persistenceFs) == "function" then
+    local okF, f = pcall(function() return SaveData.persistenceFs() end)
+    if okF and type(f) == "table" and type(f.write) == "function"
+       and type(f.read) == "function" and type(f.getInfo) == "function" then
+      return f
+    end
+  end
+  -- Direct love.filesystem (only works outside the sandbox / older builds).
   local ok, f = pcall(function() return love.filesystem end)
-  return (ok and f) or nil
+  if ok and type(f) == "table" and type(f.write) == "function" then return f end
+  return nil
 end
 
 local function isFile(path)
@@ -99,6 +112,56 @@ local function isFile(path)
   if not (f and f.getInfo) then return false end
   local ok, info = pcall(f.getInfo, path, "file")
   return (ok and info) and true or false
+end
+
+-- Sandbox-safe pack persistence via the engine mod.storage facade.
+-- love.filesystem is blocked for mods; storage writes are performed by the
+-- engine with the real FS and are the supported path under the sandbox.
+local function bindGame()
+  local okS, Storage = pcall(function() return V.require("ModStorage") end)
+  if okS and Storage then
+    if not Storage.game() then
+      local okG, Game = pcall(require, "src.core.Game")
+      if okG and Game then Storage.setGame(Game) end
+    end
+    return Storage.game()
+  end
+  local okG, Game = pcall(require, "src.core.Game")
+  return okG and Game or nil
+end
+
+local function storageApi()
+  local mod = V.mod
+  if not (mod and mod.storage and mod.storage.writeBytes and mod.storage.readBytes) then
+    return nil
+  end
+  local game = bindGame()
+  if not game then return nil end
+  return mod.storage, game
+end
+
+local function storageWriteBytes(key, bytes)
+  local api, game = storageApi()
+  if not api then return false, "no storage" end
+  local ok, code, message = api:writeBytes(game, key, bytes)
+  if ok then return true end
+  return false, tostring(message or code or "writeBytes failed")
+end
+
+local function storageReadBytes(key)
+  local api, game = storageApi()
+  if not api then return nil end
+  local bytes, code = api:readBytes(game, key)
+  if type(bytes) == "string" and #bytes > 0 then return bytes end
+  return nil
+end
+
+local function storageWriteText(key, text)
+  return storageWriteBytes(key, text)
+end
+
+local function storageReadText(key)
+  return storageReadBytes(key)
 end
 
 -- The ROM's path on the PhysFS read path, or nil.
@@ -151,11 +214,17 @@ end
 -- ------- the marker
 
 local function readMarker()
+  local body = nil
   local f = fs()
-  if not (f and isFile(StadiumInstall.MARKER)) then return nil end
-  local ok, text = pcall(f.read, StadiumInstall.MARKER)
-  if not (ok and type(text) == "string") then return nil end
-  local format, count, md5, rev = text:match("^(%S+)%s+(%d+)%s*(%S*)%s*(%S*)")
+  if f and isFile(StadiumInstall.MARKER) then
+    local ok, text = pcall(f.read, StadiumInstall.MARKER)
+    if ok and type(text) == "string" then body = text end
+  end
+  if not body then
+    body = storageReadText("stadium/marker")
+  end
+  if type(body) ~= "string" then return nil end
+  local format, count, md5, rev = body:match("^(%S+)%s+(%d+)%s*(%S*)%s*(%S*)")
   if not format then return nil end
   return { format = format, count = tonumber(count), md5 = md5,
            rev = tonumber(rev) }
@@ -259,19 +328,20 @@ StadiumInstall.status = status
 -- falls back to the normal model. That is also what a half-finished install
 -- looks like, which is the behaviour we want from one.
 local function writePack(species, bytes, shinyBytes)
+  -- Always write into dramatic_shape/stadium/ on the engine save FS.
+  -- mod.storage is playthrough-scoped and is the wrong place for packs.
   local f = fs()
-  if not f then return false, "no filesystem" end
-  local ok, err = f.write(("%s/%03d.dsm"):format(StadiumInstall.DIR, species),
-                          bytes)
+  if not (f and f.write) then
+    return false, "no persistent filesystem (SaveData.persistenceFs unavailable)"
+  end
+  local path = ("%s/%03d.dsm"):format(StadiumInstall.DIR, species)
+  local ok, err = f.write(path, bytes)
   if not ok then return false, tostring(err) end
   if shinyBytes then
-    -- A failed shiny write is not a failed install: the species still has
-    -- its model. Left unwritten, the runtime shows the normal one.
     local sok, serr = f.write(
       ("%s/%03ds.dsm"):format(StadiumInstall.DIR, species), shinyBytes)
     if not sok then
-      local msg = ("shiny pack %03d not written: %s"):format(
-        species, tostring(serr))
+      local msg = ("shiny pack %03d not written: %s"):format(species, tostring(serr))
       if V.log then V.log:warn("%s", msg)
       elseif V.dlog then V.dlog(msg)
       elseif V.mod and V.mod.log then V.mod.log:warn("%s", msg) end
@@ -314,8 +384,11 @@ end
 -- `label` is only ever used to say WHICH file a complaint is about.
 function StadiumInstall.beginFrom(bytes, label)
   local f = fs()
+  if V.log then
+    V.log:warn("StadiumInstall.beginFrom: persistent_fs=%s", tostring(f ~= nil))
+  end
   if not f then
-    if V.log then V.log:warn("StadiumInstall.beginFrom: no filesystem") end
+    if V.log then V.log:warn("StadiumInstall.beginFrom: no persistent filesystem") end
     return false, "no filesystem"
   end
   if type(bytes) ~= "string" or #bytes == 0 then
@@ -377,7 +450,7 @@ function StadiumInstall.beginFrom(bytes, label)
     return false, "needs Pokemon Stadium US 1.0"
   end
 
-  pcall(f.createDirectory, StadiumInstall.DIR)
+  if f and f.createDirectory then pcall(f.createDirectory, StadiumInstall.DIR) end
   job = StadiumBuild.job(rom, writePack, StadiumInstall.COUNT)
   job.md5 = rom:md5()
   status.state = "building"
@@ -407,11 +480,19 @@ function StadiumInstall.step()
     -- build that did not happen. beginFrom refuses such a ROM outright; this
     -- is the same rule stated where the consequence is.
     local wrote = #job.failed == 0 and job.total > 0
-    if wrote and f then
-      pcall(f.write, StadiumInstall.MARKER,
-            ("%s %d %s %d\n"):format(StadiumInstall.FORMAT, job.total,
-                                     tostring(job.md5 or ""),
-                                     StadiumInstall.REV))
+    if wrote then
+      local markerBody = ("%s %d %s %d\n"):format(
+        StadiumInstall.FORMAT, job.total,
+        tostring(job.md5 or ""), StadiumInstall.REV)
+      local wf = f or fs()
+      if wf and wf.write then
+        local mok, merr = wf.write(StadiumInstall.MARKER, markerBody)
+        if not mok and V.log then
+          V.log:warn("StadiumInstall: marker write failed: %s", tostring(merr))
+        end
+      elseif V.log then
+        V.log:warn("StadiumInstall: no FS to write marker")
+      end
       readyCache = nil
       StadiumPack.forget()
     end

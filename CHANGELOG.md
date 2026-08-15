@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.8.4
+
+### Fixed
+- Stadium ROM import under the gen1recomp mod sandbox
+  - Desktop drop via filedropped / RomImporter wrap
+  - Auto-load from model_extract/baseroms/baserom.z64 (and save-dir baseroms/)
+  - Short drop/path note fallback
+  - Packs via SaveData.persistenceFs() → dramatic_shape/stadium/
+  - Sandbox guards + visible import errors
+
+### Changed
+- Shortened Stadium ROM import note text
+
 ## 1.8.3
 
 ### Added
